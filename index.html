@@ -172,6 +172,7 @@ h1{font-family:var(--display);font-weight:700;text-transform:uppercase;font-size
     <div class="result" id="result"></div>
     <div class="row">
       <button class="b-alt" id="hint">Indice</button>
+      <button class="b-alt" id="solution">Solution</button>
       <button class="b-go" id="next">Position d'entraînement</button>
     </div>
     <div class="row" id="sharerow" style="display:none">
@@ -399,6 +400,34 @@ function premierCoup(st,prof){
   }
   return null;
 }
+function cheminSolution(st,prof){
+  if(!st.foes.length)return [];
+  if(prof===0)return null;
+  var acts=actionsTuantes(st), i;
+  for(i=0;i<acts.length;i++){
+    var reste=cheminSolution(suivant(st,acts[i]),prof-1);
+    if(reste!==null){
+      var a=acts[i], step=a.kind==="gren"
+        ? {type:"gren",op:1,cible:a.a.cible,morts:a.n}
+        : {type:"tir",op:a.op,cible:a.a.directs[a.a.directs.length-1],morts:a.n};
+      return [step].concat(reste);
+    }
+  }
+  for(var o=0;o<2;o++){
+    var it=accessibles(st.ops[o],st).keys(), r;
+    while(!(r=it.next()).done){
+      var n=copie(st); n.ops[o]=r.value;
+      var rest=cheminSolution(n,prof-1);
+      if(rest!==null) return [{type:"dep",op:o,vers:r.value}].concat(rest);
+    }
+  }
+  return null;
+}
+function decritCoup(s){
+  return s.type==="tir" ? "opérateur "+COL[s.op]+" — tir sur "+nom(s.cible)+" (−"+s.morts+")"
+       : s.type==="gren" ? "grenadier B — grenade en "+nom(s.cible)+" (−"+s.morts+")"
+       : "déplacer l'opérateur "+COL[s.op]+" en "+nom(s.vers);
+}
 
 /* ---------- génération ---------- */
 function genere(seed,opt){
@@ -430,7 +459,7 @@ function genere(seed,opt){
 
 /* ---------- état ---------- */
 var base=null, st=null, pile=[], refaire=[], log=[], serie=0, record=0,
-    fini=false, quotidienne=true, indice=null, indiceUtilise=false,
+    fini=false, quotidienne=true, indice=null, indiceUtilise=false, solution=null,
     sel=null, attente=null, modeGren=false, entrainement=0, son=true, numero=0;
 
 var audio={ctx:null};
@@ -459,7 +488,7 @@ function charger(seed,quot,opt){
   if(!p){ $("#result").innerHTML='<b class="ko">Génération impossible</b> — touche « position suivante ».'; return; }
   base=p; quotidienne=quot;
   st=copie(base); pile=[]; refaire=[]; log=[]; fini=false;
-  indice=null; indiceUtilise=false; attente=null; modeGren=false; sel=st.ops[0];
+  indice=null; solution=null; indiceUtilise=false; attente=null; modeGren=false; sel=st.ops[0];
   $("#result").innerHTML=""; $("#sharerow").style.display="none";
   render();
 }
@@ -507,7 +536,7 @@ function animer(cases,cls,retard){
 }
 
 function apres(){
-  indice=null;
+  indice=null; solution=null;
   if(!st.foes.length){
     fini=true;
     var couvert=st.ops.every(function(o){return st.map[o]==="C";});
@@ -622,7 +651,12 @@ function render(){
 
   /* alerte */
   var az=$("#alertzone");
-  if(indice){
+  if(solution){
+    var lignes=solution.length
+      ? solution.map(function(s,n){return (n+1)+". "+decritCoup(s);}).join("<br>")
+      : "position déjà résolue.";
+    az.innerHTML='<div class="alert tip">Solution :<br>'+lignes+"</div>";
+  }else if(indice){
     var txt = indice.type==="tir" ? "l'opérateur "+COL[indice.op]+" a un tir qui fauche "
         +indice.morts+" hostile"+(indice.morts>1?"s":"")
       : indice.type==="gren" ? "la grenade en "+nom(indice.cible)+" en souffle "+indice.morts
@@ -644,6 +678,7 @@ function render(){
   $("#undo").disabled=!pile.length;
   $("#redo").disabled=!refaire.length;
   $("#hint").disabled=fini||!st.foes.length;
+  $("#solution").disabled=fini||!st.foes.length;
   $("#next").textContent=fini?"Position suivante":"Position d'entraînement";
 }
 
@@ -674,7 +709,7 @@ $("#undo").onclick=function(){
   if(!pile.length)return;
   refaire.push({st:copie(st),log:log.map(function(l){return {txt:l.txt,kills:l.kills,type:l.type};}),sel:sel});
   var h=pile.pop(); st=h.st; log=h.log; sel=h.sel;
-  fini=false; attente=null; indice=null; modeGren=false;
+  fini=false; attente=null; indice=null; solution=null; modeGren=false;
   $("#result").innerHTML=""; $("#sharerow").style.display="none"; bip(240,.05); render();
 };
 $("#redo").onclick=function(){
@@ -684,13 +719,20 @@ $("#redo").onclick=function(){
 };
 $("#reset").onclick=function(){
   st=copie(base); log=[]; pile=[]; refaire=[]; fini=false; attente=null; modeGren=false;
-  indice=null; sel=st.ops[0]; $("#result").innerHTML="";
+  indice=null; solution=null; sel=st.ops[0]; $("#result").innerHTML="";
   $("#sharerow").style.display="none"; render();
 };
 $("#hint").onclick=function(){
   if(fini)return;
   indice=premierCoup(st,3-log.length); indiceUtilise=true;
   if(indice&&indice.type==="gren")modeGren=true;
+  solution=null;
+  render();
+};
+$("#solution").onclick=function(){
+  if(fini)return;
+  solution=cheminSolution(st,3-log.length);
+  indice=null;
   render();
 };
 $("#next").onclick=function(){
